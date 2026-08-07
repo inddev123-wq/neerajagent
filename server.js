@@ -176,6 +176,10 @@ async function polishWithGemini(roughText, context) {
 
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    // Log the FULL Gemini response so we can see the real reason it failed
+    console.error("Gemini did not return text. Full response:", JSON.stringify(data));
+  }
   return text ? text.trim() : "Could not generate a rewrite. Try again.";
 }
 

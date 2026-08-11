@@ -10,11 +10,9 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN; // needed for actually sending messages
-const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" +
-  GEMINI_API_KEY;
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 // Temporary storage for drafts waiting on your Send/Cancel click.
 // Note: this resets if the free server restarts/sleeps — fine for personal use,
@@ -37,7 +35,7 @@ app.post("/slack/write", async (req, res) => {
   res.send("Polishing your message...");
 
   try {
-    const polished = await polishWithGemini(roughText, "a Slack message");
+    const polished = await polishWithClaude(roughText, "a Slack message");
     await sendToResponseUrl(responseUrl, polished);
   } catch (err) {
     console.error(err);
@@ -69,7 +67,7 @@ app.post("/slack/reply", async (req, res) => {
   res.send("Drafting your reply...");
 
   try {
-    const polished = await polishWithGemini(roughText, "a direct message to a coworker");
+    const polished = await polishWithClaude(roughText, "a direct message to a coworker");
 
     const draftId = "draft_" + Date.now();
     pendingDrafts[draftId] = { targetUserId, message: polished };
@@ -160,7 +158,7 @@ app.post("/slack/interactions", async (req, res) => {
 });
 
 // ---------- Shared helpers ----------
-async function polishWithGemini(roughText, context) {
+async function polishWithClaude(roughText, context) {
   const prompt =
     `Rewrite the following rough note into ${context}. ` +
     "Keep it clear, professional but friendly, and concise. " +
@@ -168,17 +166,25 @@ async function polishWithGemini(roughText, context) {
     "Only output the rewritten message, nothing else.\n\nRough note: " +
     roughText;
 
-  const response = await fetch(GEMINI_URL, {
+  const response = await fetch(ANTHROPIC_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 300,
+      messages: [{ role: "user", content: prompt }],
+    }),
   });
 
   const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const text = data?.content?.[0]?.text;
   if (!text) {
-    // Log the FULL Gemini response so we can see the real reason it failed
-    console.error("Gemini did not return text. Full response:", JSON.stringify(data));
+    // Log the FULL Claude response so we can see the real reason it failed
+    console.error("Claude did not return text. Full response:", JSON.stringify(data));
   }
   return text ? text.trim() : "Could not generate a rewrite. Try again.";
 }
